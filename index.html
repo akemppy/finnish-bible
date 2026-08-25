@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f3efe4">
+  <meta name="description" content="Suomenkielinen Raamattu: Biblia 1776 ja Kirkkoraamattu 1933/1938. Julkista tekstiä, toimii ilman palvelinta.">
+  <title>Raamattu</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b5c4c'/%3E%3Cpath d='M8 8h6.2c3.2 0 5.3 1.7 5.3 4.3 0 2.8-2.2 4.5-5.6 4.5H11v7H8V8zm3 6.4h2.6c1.7 0 2.7-.8 2.7-2.1 0-1.2-.9-2-2.6-2H11v4.1z' fill='%23f3efe4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="top-row">
+        <div class="brand">
+          <h1>Raamattu</h1>
+          <span class="sub">suomeksi</span>
+        </div>
+        <div class="toggle" role="tablist" aria-label="Käännös">
+          <button type="button" role="tab" data-translation="biblia" aria-pressed="true">Biblia</button>
+          <button type="button" role="tab" data-translation="kr1938" aria-pressed="false">KR 1938</button>
+        </div>
+      </div>
+
+      <div class="search-wrap" role="search">
+        <label class="visually-hidden" for="search">Hae</label>
+        <input id="search" type="search" placeholder="Hae tai avaa kohta, esim. Joh 3:16" autocomplete="off" enterkeyhint="search" spellcheck="false">
+        <button type="button" class="clear" id="search-clear" aria-label="Tyhjennä haku">×</button>
+        <div id="results" class="results" role="listbox" aria-label="Hakutulokset"></div>
+      </div>
+
+      <nav class="nav" aria-label="Luku">
+        <button type="button" class="arrow" id="prev-chapter" aria-label="Edellinen luku">‹</button>
+        <button type="button" class="book-btn" id="book-btn" aria-haspopup="dialog">
+          <span id="book-btn-label">1. Mooseksen kirja 1</span>
+        </button>
+        <button type="button" class="arrow" id="next-chapter" aria-label="Seuraava luku">›</button>
+      </nav>
+    </header>
+
+    <main id="reader">
+      <div class="status">Ladataan Raamattua…</div>
+    </main>
+
+    <footer class="foot">
+      <p>
+        Tekstit ovat julkista omaisuutta.
+        <span id="footer-translation">Biblia 1776</span>.
+        Biblia 1776: USFM-lähde
+        <a href="https://github.com/refdoc/Archive-Bible-Finnish">Archive-Bible-Finnish</a>.
+        Kirkkoraamattu 1933/1938: USFM-lähde
+        <a href="https://github.com/raamattu/raamattu">raamattu/raamattu</a>.
+      </p>
+    </footer>
+  </div>
+
+  <div class="overlay" id="picker" aria-hidden="true">
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+      <div class="sheet-bar">
+        <button type="button" class="back" id="sheet-back" hidden>←</button>
+        <h3 id="sheet-title">Valitse kirja</h3>
+        <button type="button" class="x" id="sheet-close" aria-label="Sulje">✕</button>
+      </div>
+      <div class="sheet-body" id="sheet-body"></div>
+    </div>
+  </div>
+
+  <script src="js/books.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
