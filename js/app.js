@@ -1,10 +1,11 @@
 (function () {
   "use strict";
 
-  const STORAGE_KEY = "suomi-raamattu:v1";
+  const STORAGE_KEY = "suomi-raamattu:v2";
   const TRANSLATIONS = {
     biblia: { file: "data/biblia.json", short: "Biblia", label: "Biblia 1776" },
-    kr1938: { file: "data/kr1938.json", short: "KR 1938", label: "Kirkkoraamattu 1933/1938" }
+    kr1938: { file: "data/kr1938.json", short: "KR 1938", label: "Kirkkoraamattu 1933/1938" },
+    kjv: { file: "data/kjv.json", short: "KJV", label: "King James Version (1769)" }
   };
   const MAX_RESULTS = 40;
 
@@ -13,6 +14,9 @@
 
   const els = {
     toggles: $$("[data-translation]"),
+    rightToggles: $$("[data-translation-right]"),
+    compareBtn: $("#compare-btn"),
+    compareRow: $("#compare-row"),
     search: $("#search"),
     searchWrap: $(".search-wrap"),
     clear: $("#search-clear"),
@@ -40,6 +44,8 @@
 
   const state = {
     translation: "biblia",
+    translation2: "kjv",
+    compare: false,
     book: "gen",
     chapter: 1,
     verse: null
@@ -49,19 +55,28 @@
     return BibleBooks.byId[id] || BibleBooks.BOOKS[0];
   }
 
-  function currentPack() {
-    return cache[state.translation];
+  function otherTranslation(id) {
+    if (id !== "kjv") return "kjv";
+    return "biblia";
   }
 
-  function bookData(id) {
-    const pack = currentPack();
+  function bookDataOf(translationId, id) {
+    const pack = cache[translationId];
     if (!pack) return null;
     return pack.books.find((b) => b.id === id) || null;
   }
 
+  function bookData(id) {
+    return bookDataOf(state.translation, id);
+  }
+
   function chapterCount(id) {
-    const b = bookData(id);
-    return b ? b.chapters.length : 0;
+    const left = bookDataOf(state.translation, id);
+    const leftN = left ? left.chapters.length : 0;
+    if (!state.compare) return leftN;
+    const right = bookDataOf(state.translation2, id);
+    const rightN = right ? right.chapters.length : 0;
+    return Math.max(leftN, rightN);
   }
 
   function save() {
@@ -70,6 +85,8 @@
         STORAGE_KEY,
         JSON.stringify({
           translation: state.translation,
+          translation2: state.translation2,
+          compare: state.compare,
           book: state.book,
           chapter: state.chapter
         })
@@ -79,17 +96,25 @@
 
   function restore() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("suomi-raamattu:v1");
       if (!raw) return;
       const s = JSON.parse(raw);
       if (TRANSLATIONS[s.translation]) state.translation = s.translation;
+      if (TRANSLATIONS[s.translation2]) state.translation2 = s.translation2;
+      if (typeof s.compare === "boolean") state.compare = s.compare;
       if (BibleBooks.byId[s.book]) state.book = s.book;
       if (Number.isInteger(s.chapter) && s.chapter > 0) state.chapter = s.chapter;
     } catch (_) {}
+    if (state.translation2 === state.translation) {
+      state.translation2 = otherTranslation(state.translation);
+    }
   }
 
   function writeHash() {
-    const parts = [state.translation, state.book, String(state.chapter)];
+    const head = state.compare
+      ? state.translation + "+" + state.translation2
+      : state.translation;
+    const parts = [head, state.book, String(state.chapter)];
     if (state.verse) parts.push(String(state.verse));
     const next = "#" + parts.join("/");
     if (location.hash !== next) history.replaceState(null, "", next);
@@ -101,8 +126,17 @@
     const parts = h.split("/").filter(Boolean);
     if (!parts.length) return false;
     let i = 0;
-    if (TRANSLATIONS[parts[0]]) {
+    if (parts[0].includes("+")) {
+      const [a, b] = parts[0].split("+");
+      if (TRANSLATIONS[a] && TRANSLATIONS[b] && a !== b) {
+        state.translation = a;
+        state.translation2 = b;
+        state.compare = true;
+        i = 1;
+      }
+    } else if (TRANSLATIONS[parts[0]]) {
       state.translation = parts[0];
+      state.compare = false;
       i = 1;
     }
     if (parts[i] && BibleBooks.byId[parts[i]]) {
@@ -312,36 +346,8 @@
     return { book: books[book].id, chapter: ch };
   }
 
-  function renderChapter() {
-    const meta = bookMeta(state.book);
-    const data = bookData(state.book);
-    els.bookBtnLabel.textContent = meta.name + " " + state.chapter;
-    els.footerTr.textContent = TRANSLATIONS[state.translation].label;
-    els.toggles.forEach((btn) => {
-      btn.setAttribute("aria-pressed", btn.dataset.translation === state.translation ? "true" : "false");
-    });
-
-    const prev = neighbor(-1);
-    const next = neighbor(1);
-    els.prev.disabled = !prev;
-    els.next.disabled = !next;
-
-    if (!data || !data.chapters[state.chapter - 1]) {
-      els.main.innerHTML = '<div class="status error">Tätä lukua ei löytynyt.</div>';
-      return;
-    }
-
-    const verses = data.chapters[state.chapter - 1];
-    const q = pendingHighlight;
-    let html =
-      '<div class="chapter-head"><h2>' +
-      escapeHtml(meta.name) +
-      " " +
-      state.chapter +
-      '</h2><div class="tr">' +
-      escapeHtml(TRANSLATIONS[state.translation].label) +
-      "</div></div><div class='passage'>";
-
+  function passageHtml(verses, q, idPrefix) {
+    let html = "<div class='passage'>";
     verses.forEach((text, i) => {
       if (!text) return;
       const n = i + 1;
@@ -349,7 +355,8 @@
       html +=
         '<span class="verse' +
         hit +
-        '" id="v' +
+        '" id="' +
+        idPrefix +
         n +
         '"><span class="vn">' +
         n +
@@ -357,9 +364,34 @@
         highlightHtml(text, q && state.verse === n ? q : "") +
         " </span>";
     });
-
     html += "</div>";
-    html += '<div class="chapter-end">';
+    return html;
+  }
+
+  function paneHtml(translationId, idPrefix) {
+    const meta = bookMeta(state.book);
+    const data = bookDataOf(translationId, state.book);
+    const label = TRANSLATIONS[translationId].label;
+    let html = '<section class="pane">';
+    html +=
+      '<div class="chapter-head"><h2>' +
+      escapeHtml(meta.name) +
+      " " +
+      state.chapter +
+      '</h2><div class="tr">' +
+      escapeHtml(label) +
+      "</div></div>";
+    if (!data || !data.chapters[state.chapter - 1]) {
+      html += '<div class="status error">Tätä lukua ei löytynyt.</div></section>';
+      return html;
+    }
+    html += passageHtml(data.chapters[state.chapter - 1], pendingHighlight, idPrefix);
+    html += "</section>";
+    return html;
+  }
+
+  function chapterEndHtml(prev, next) {
+    let html = '<div class="chapter-end">';
     html +=
       '<button type="button" id="end-prev"' +
       (prev ? "" : " disabled") +
@@ -372,25 +404,101 @@
       ">" +
       (next ? bookMeta(next.book).abbr + " " + next.chapter + " →" : "Loppu") +
       "</button></div>";
+    return html;
+  }
 
-    els.main.innerHTML = html;
-    $("#end-prev").addEventListener("click", () => {
-      const n = neighbor(-1);
-      if (n) goTo(n.book, n.chapter);
+  function updateChrome() {
+    const meta = bookMeta(state.book);
+    els.bookBtnLabel.textContent = meta.name + " " + state.chapter;
+    if (state.compare) {
+      els.footerTr.textContent =
+        TRANSLATIONS[state.translation].label + " · " + TRANSLATIONS[state.translation2].label;
+    } else {
+      els.footerTr.textContent = TRANSLATIONS[state.translation].label;
+    }
+    els.toggles.forEach((btn) => {
+      btn.setAttribute("aria-pressed", btn.dataset.translation === state.translation ? "true" : "false");
     });
-    $("#end-next").addEventListener("click", () => {
-      const n = neighbor(1);
-      if (n) goTo(n.book, n.chapter);
+    els.rightToggles.forEach((btn) => {
+      btn.setAttribute("aria-pressed", btn.dataset.translationRight === state.translation2 ? "true" : "false");
     });
+    els.compareBtn.setAttribute("aria-pressed", state.compare ? "true" : "false");
+    els.compareRow.hidden = !state.compare;
+    document.body.classList.toggle("compare-on", state.compare);
 
+    const prev = neighbor(-1);
+    const next = neighbor(1);
+    els.prev.disabled = !prev;
+    els.next.disabled = !next;
+    return { prev, next, meta };
+  }
+
+  function bindChapterEnd() {
+    const prevBtn = $("#end-prev");
+    const nextBtn = $("#end-next");
+    if (prevBtn) {
+      prevBtn.addEventListener("click", () => {
+        const n = neighbor(-1);
+        if (n) goTo(n.book, n.chapter);
+      });
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener("click", () => {
+        const n = neighbor(1);
+        if (n) goTo(n.book, n.chapter);
+      });
+    }
+  }
+
+  function scrollToVerse() {
     if (state.verse) {
-      const node = document.getElementById("v" + state.verse);
+      const node = document.getElementById("v" + state.verse) || document.getElementById("vr" + state.verse);
       if (node) {
         requestAnimationFrame(() => node.scrollIntoView({ block: "center", behavior: "smooth" }));
+        return;
       }
-    } else {
-      window.scrollTo(0, 0);
     }
+    window.scrollTo(0, 0);
+  }
+
+  function renderChapter() {
+    const { prev, next } = updateChrome();
+
+    if (state.compare) {
+      let html = '<div class="compare-grid">';
+      html += paneHtml(state.translation, "v");
+      html += paneHtml(state.translation2, "vr");
+      html += "</div>";
+      html += chapterEndHtml(prev, next);
+      els.main.innerHTML = html;
+      bindChapterEnd();
+      scrollToVerse();
+      return;
+    }
+
+    const data = bookData(state.book);
+    if (!data || !data.chapters[state.chapter - 1]) {
+      els.main.innerHTML = '<div class="status error">Tätä lukua ei löytynyt.</div>';
+      return;
+    }
+
+    const meta = bookMeta(state.book);
+    const verses = data.chapters[state.chapter - 1];
+    const q = pendingHighlight;
+    let html =
+      '<div class="chapter-head"><h2>' +
+      escapeHtml(meta.name) +
+      " " +
+      state.chapter +
+      '</h2><div class="tr">' +
+      escapeHtml(TRANSLATIONS[state.translation].label) +
+      "</div></div>";
+    html += passageHtml(verses, q, "v");
+    html += chapterEndHtml(prev, next);
+
+    els.main.innerHTML = html;
+    bindChapterEnd();
+    scrollToVerse();
   }
 
   function openPicker() {
@@ -482,22 +590,28 @@
     }
   }
 
-  async function showTranslation(id, keepPlace) {
+  function clampPlace() {
+    const nCh = chapterCount(state.book);
+    if (!nCh) {
+      state.book = "gen";
+      state.chapter = 1;
+    } else if (state.chapter > nCh) {
+      state.chapter = nCh;
+    }
+  }
+
+  async function refreshView() {
     els.main.innerHTML = '<div class="status">Ladataan Raamattua…</div>';
     try {
-      await loadTranslation(id);
-      state.translation = id;
-      index = buildIndex(cache[id]);
-      const nCh = chapterCount(state.book);
-      if (!nCh) {
-        state.book = "gen";
-        state.chapter = 1;
-      } else if (state.chapter > nCh) {
-        state.chapter = nCh;
+      await loadTranslation(state.translation);
+      if (state.compare) {
+        if (state.translation2 === state.translation) {
+          state.translation2 = otherTranslation(state.translation);
+        }
+        await loadTranslation(state.translation2);
       }
-      if (!keepPlace) {
-        /* keep current book/chapter when toggling */
-      }
+      index = buildIndex(cache[state.translation]);
+      clampPlace();
       save();
       writeHash();
       renderChapter();
@@ -508,6 +622,14 @@
         escapeHtml(err.message) +
         "</div>";
     }
+  }
+
+  async function showTranslation(id, keepPlace) {
+    state.translation = id;
+    if (state.compare && state.translation2 === id) {
+      state.translation2 = keepPlace && TRANSLATIONS[keepPlace] ? keepPlace : otherTranslation(id);
+    }
+    await refreshView();
   }
 
   function onSearchInput() {
@@ -542,10 +664,31 @@
   function bind() {
     els.toggles.forEach((btn) => {
       btn.addEventListener("click", () => {
-        if (btn.dataset.translation !== state.translation) {
-          showTranslation(btn.dataset.translation, true);
-        }
+        const id = btn.dataset.translation;
+        if (id === state.translation) return;
+        const prev = state.translation;
+        showTranslation(id, prev);
       });
+    });
+
+    els.rightToggles.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.translationRight;
+        if (!TRANSLATIONS[id] || id === state.translation2) return;
+        if (id === state.translation) {
+          state.translation = state.translation2;
+        }
+        state.translation2 = id;
+        refreshView();
+      });
+    });
+
+    els.compareBtn.addEventListener("click", () => {
+      state.compare = !state.compare;
+      if (state.compare && state.translation2 === state.translation) {
+        state.translation2 = otherTranslation(state.translation);
+      }
+      refreshView();
     });
 
     els.search.addEventListener("input", onSearchInput);
@@ -625,7 +768,7 @@
 
     window.addEventListener("hashchange", () => {
       readHash();
-      showTranslation(state.translation, true);
+      refreshView();
     });
 
     document.addEventListener("click", (e) => {
@@ -638,7 +781,7 @@
     readHash();
     bind();
     els.searchWrap.classList.toggle("has-query", els.search.value.length > 0);
-    await showTranslation(state.translation, true);
+    await refreshView();
   }
 
   if (document.readyState === "loading") {
