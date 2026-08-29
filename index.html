@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f3efe4">
-  <meta name="description" content="Suomenkielinen Raamattu: Biblia 1776 ja Kirkkoraamattu 1933/1938. Julkista tekstiä, toimii ilman palvelinta.">
+  <meta name="description" content="Raamattu: Biblia 1776, Kirkkoraamattu 1933/1938 ja public-domain KJV. Julkista tekstiä, toimii ilman palvelinta. Rinnakkain-luku.">
   <title>Raamattu</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b5c4c'/%3E%3Cpath d='M8 8h6.2c3.2 0 5.3 1.7 5.3 4.3 0 2.8-2.2 4.5-5.6 4.5H11v7H8V8zm3 6.4h2.6c1.7 0 2.7-.8 2.7-2.1 0-1.2-.9-2-2.6-2H11v4.1z' fill='%23f3efe4'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/style.css">
@@ -15,11 +15,24 @@
       <div class="top-row">
         <div class="brand">
           <h1>Raamattu</h1>
-          <span class="sub">suomeksi</span>
+          <span class="sub">suomeksi &amp; KJV</span>
         </div>
-        <div class="toggle" role="tablist" aria-label="Käännös">
-          <button type="button" role="tab" data-translation="biblia" aria-pressed="true">Biblia</button>
-          <button type="button" role="tab" data-translation="kr1938" aria-pressed="false">KR 1938</button>
+        <div class="top-controls">
+          <div class="toggle" id="toggle-left" role="tablist" aria-label="Käännös">
+            <button type="button" role="tab" data-translation="biblia" aria-pressed="true">Biblia</button>
+            <button type="button" role="tab" data-translation="kr1938" aria-pressed="false">KR 1938</button>
+            <button type="button" role="tab" data-translation="kjv" aria-pressed="false">KJV</button>
+          </div>
+          <button type="button" class="compare-btn" id="compare-btn" aria-pressed="false" aria-controls="compare-row">Rinnakkain</button>
+        </div>
+      </div>
+
+      <div class="compare-row" id="compare-row" hidden>
+        <span class="compare-label">Oikea</span>
+        <div class="toggle" id="toggle-right" role="tablist" aria-label="Oikea käännös">
+          <button type="button" role="tab" data-translation-right="biblia" aria-pressed="false">Biblia</button>
+          <button type="button" role="tab" data-translation-right="kr1938" aria-pressed="false">KR 1938</button>
+          <button type="button" role="tab" data-translation-right="kjv" aria-pressed="false">KJV</button>
         </div>
       </div>
 
@@ -51,6 +64,9 @@
         <a href="https://github.com/refdoc/Archive-Bible-Finnish">Archive-Bible-Finnish</a>.
         Kirkkoraamattu 1933/1938: USFM-lähde
         <a href="https://github.com/raamattu/raamattu">raamattu/raamattu</a>.
+        KJV (Authorized Version 1769) is public domain.
+        JSON:
+        <a href="https://github.com/aruljohn/Bible-kjv">aruljohn/Bible-kjv</a>.
       </p>
     </footer>
   </div>
