@@ -530,22 +530,85 @@ main {
   color: var(--ink-soft);
 }
 
+/* Rinnakkain: always two columns, including 320px phones */
 .compare-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 1.6rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  align-items: start;
+}
+
+.compare-grid .pane {
+  min-width: 0;
+  padding: 0 4px;
+  max-height: 70vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .compare-grid .pane + .pane {
-  border-top: 1px solid var(--rule);
-  padding-top: 1.2rem;
+  border-left: 1px solid var(--rule);
+  padding-left: 5px;
+}
+
+/* Full-bleed chrome in compare mode — no 42rem column */
+body.compare-on .top {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+body.compare-on .top-row,
+body.compare-on .search-wrap,
+body.compare-on .nav,
+body.compare-on .compare-row {
+  max-width: none;
 }
 
 body.compare-on main {
-  width: min(42rem, 100%);
+  width: 100%;
+  padding: 0.45rem 4px 1.4rem;
 }
 
+body.compare-on .foot {
+  width: 100%;
+  padding: 0 4px 1.1rem;
+}
+
+/* Compact type so two skinny columns fit a phone */
+body.compare-on .compare-grid .chapter-head {
+  margin: 0.05rem 0 0.4rem;
+  padding-bottom: 0.3rem;
+  gap: 0.25rem;
+}
+
+body.compare-on .compare-grid .chapter-head h2 {
+  font-size: 0.72rem;
+  letter-spacing: 0;
+}
+
+body.compare-on .compare-grid .chapter-head .tr {
+  font-size: 0.58rem;
+}
+
+body.compare-on .compare-grid .passage {
+  font-size: 0.8rem;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+body.compare-on .compare-grid .verse .vn {
+  font-size: 0.52rem;
+  margin-right: 0.16rem;
+}
+
+/* Desktop: more room, still two columns */
 @media (min-width: 900px) {
+  body.compare-on .top {
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+  }
+
   body.compare-on .top-row,
   body.compare-on .search-wrap,
   body.compare-on .nav,
@@ -555,23 +618,49 @@ body.compare-on main {
 
   body.compare-on main {
     width: min(72rem, 100%);
+    padding: 1.15rem 1.1rem 2rem;
   }
 
   body.compare-on .foot {
     width: min(72rem, 100%);
+    padding: 0 1.1rem 1.6rem;
   }
 
   .compare-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
     gap: 0 1.8rem;
-    align-items: start;
+  }
+
+  .compare-grid .pane {
+    padding: 0;
+    max-height: none;
+    overflow: visible;
   }
 
   .compare-grid .pane + .pane {
-    border-top: 0;
-    padding-top: 0;
-    border-left: 1px solid var(--rule);
     padding-left: 1.8rem;
+  }
+
+  body.compare-on .compare-grid .chapter-head {
+    margin: 0.2rem 0 1.1rem;
+    padding-bottom: 0.7rem;
+    gap: 1rem;
+  }
+
+  body.compare-on .compare-grid .chapter-head h2 {
+    font-size: 1.2rem;
+  }
+
+  body.compare-on .compare-grid .chapter-head .tr {
+    font-size: 0.75rem;
+  }
+
+  body.compare-on .compare-grid .passage {
+    font-size: 1rem;
+    line-height: 1.55;
+  }
+
+  body.compare-on .compare-grid .verse .vn {
+    font-size: 0.6rem;
+    margin-right: 0.28rem;
   }
 }
