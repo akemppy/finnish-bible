@@ -2,6 +2,10 @@
   "use strict";
 
   const STORAGE_KEY = "suomi-raamattu:v2";
+  const COMPARE_SIZE_KEY = "suomi-raamattu:compare-size";
+  const COMPARE_SIZE_MIN = 0.7;
+  const COMPARE_SIZE_MAX = 1.4;
+  const COMPARE_SIZE_STEP = 0.1;
   const TRANSLATIONS = {
     biblia: { file: "data/biblia.json", short: "Biblia", label: "Biblia 1776" },
     kr1938: { file: "data/kr1938.json", short: "KR 1938", label: "Kirkkoraamattu 1933/1938" },
@@ -31,7 +35,9 @@
     sheetBody: $("#sheet-body"),
     sheetBack: $("#sheet-back"),
     sheetClose: $("#sheet-close"),
-    footerTr: $("#footer-translation")
+    footerTr: $("#footer-translation"),
+    sizeDown: $("#size-down"),
+    sizeUp: $("#size-up")
   };
 
   const cache = Object.create(null);
@@ -47,6 +53,7 @@
   let searchTimer = 0;
   let pendingHighlight = null;
   let viewSeq = 0;
+  let compareScale = 1;
 
   const state = {
     translation: "biblia",
@@ -417,26 +424,95 @@
     return { book: books[book].id, chapter: ch };
   }
 
+  function verseSpanHtml(text, n, q, idPrefix) {
+    if (!text) return "";
+    const hit = state.verse === n ? " hit" : "";
+    return (
+      '<span class="verse' +
+      hit +
+      '" id="' +
+      idPrefix +
+      n +
+      '"><span class="vn">' +
+      n +
+      "</span>" +
+      highlightHtml(text, q && state.verse === n ? q : "") +
+      "</span>"
+    );
+  }
+
   function passageHtml(verses, q, idPrefix) {
     let html = "<div class='passage'>";
     verses.forEach((text, i) => {
       if (!text) return;
-      const n = i + 1;
-      const hit = state.verse === n ? " hit" : "";
-      html +=
-        '<span class="verse' +
-        hit +
-        '" id="' +
-        idPrefix +
-        n +
-        '"><span class="vn">' +
-        n +
-        "</span>" +
-        highlightHtml(text, q && state.verse === n ? q : "") +
-        " </span>";
+      html += verseSpanHtml(text, i + 1, q, idPrefix) + " ";
     });
     html += "</div>";
     return html;
+  }
+
+  function pairCellHtml(text, n, q, idPrefix) {
+    return '<div class="pair-cell">' + verseSpanHtml(text, n, q, idPrefix) + "</div>";
+  }
+
+  function compareHeadCell(translationId) {
+    const meta = bookMeta(state.book);
+    return (
+      '<div class="pair-cell"><div class="chapter-head"><h2>' +
+      escapeHtml(meta.name) +
+      " " +
+      state.chapter +
+      '</h2><div class="tr">' +
+      escapeHtml(TRANSLATIONS[translationId].label) +
+      "</div></div></div>"
+    );
+  }
+
+  function compareHtml() {
+    const left = bookDataOf(state.translation, state.book);
+    const right = bookDataOf(state.translation2, state.book);
+    const leftVerses = (left && left.chapters[state.chapter - 1]) || [];
+    const rightVerses = (right && right.chapters[state.chapter - 1]) || [];
+    const q = pendingHighlight;
+    let html = '<div class="compare-grid">';
+    html += '<div class="verse-pair verse-pair-head">';
+    html += compareHeadCell(state.translation);
+    html += compareHeadCell(state.translation2);
+    html += "</div>";
+    const n = Math.max(leftVerses.length, rightVerses.length);
+    for (let i = 0; i < n; i++) {
+      html += '<div class="verse-pair">';
+      html += pairCellHtml(leftVerses[i], i + 1, q, "v");
+      html += pairCellHtml(rightVerses[i], i + 1, q, "vr");
+      html += "</div>";
+    }
+    html += "</div>";
+    return html;
+  }
+
+  function applyCompareSize() {
+    document.documentElement.style.setProperty("--compare-scale", String(compareScale));
+    if (els.sizeDown) els.sizeDown.disabled = compareScale <= COMPARE_SIZE_MIN + 0.001;
+    if (els.sizeUp) els.sizeUp.disabled = compareScale >= COMPARE_SIZE_MAX - 0.001;
+  }
+
+  function loadCompareSize() {
+    try {
+      const n = parseFloat(localStorage.getItem(COMPARE_SIZE_KEY));
+      if (Number.isFinite(n)) {
+        compareScale = Math.min(COMPARE_SIZE_MAX, Math.max(COMPARE_SIZE_MIN, n));
+      }
+    } catch (_) {}
+    applyCompareSize();
+  }
+
+  function bumpCompareSize(delta) {
+    compareScale = Math.round((compareScale + delta) * 10) / 10;
+    compareScale = Math.min(COMPARE_SIZE_MAX, Math.max(COMPARE_SIZE_MIN, compareScale));
+    try {
+      localStorage.setItem(COMPARE_SIZE_KEY, String(compareScale));
+    } catch (_) {}
+    applyCompareSize();
   }
 
   function paneHtml(translationId, idPrefix) {
@@ -537,10 +613,7 @@
     const { prev, next } = updateChrome();
 
     if (state.compare) {
-      let html = '<div class="compare-grid">';
-      html += paneHtml(state.translation, "v");
-      html += paneHtml(state.translation2, "vr");
-      html += "</div>";
+      let html = compareHtml();
       html += chapterEndHtml(prev, next);
       els.main.innerHTML = html;
       bindChapterEnd();
@@ -860,6 +933,13 @@
       });
     });
 
+    if (els.sizeDown) {
+      els.sizeDown.addEventListener("click", () => bumpCompareSize(-COMPARE_SIZE_STEP));
+    }
+    if (els.sizeUp) {
+      els.sizeUp.addEventListener("click", () => bumpCompareSize(COMPARE_SIZE_STEP));
+    }
+
     els.compareBtn.addEventListener("click", () => {
       state.compare = !state.compare;
       if (state.compare && state.translation2 === state.translation) {
@@ -962,6 +1042,7 @@
   async function init() {
     restore();
     readHash();
+    loadCompareSize();
     bind();
     els.searchWrap.classList.toggle("has-query", els.search.value.length > 0);
     syncSearchReady();
