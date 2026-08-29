@@ -35,12 +35,18 @@
   };
 
   const cache = Object.create(null);
+  const inflight = Object.create(null);
+  const LOADING_HTML =
+    '<div class="status">Ladataan käännöstä… iso tiedosto, odota hetki</div>';
+  const IDB_NAME = "suomi-raamattu-packs";
+  const IDB_VERSION = 1;
   let index = null;
   let pickerMode = "books";
   let pickerBook = null;
   let activeResult = -1;
   let searchTimer = 0;
   let pendingHighlight = null;
+  let viewSeq = 0;
 
   const state = {
     translation: "biblia",
@@ -60,10 +66,59 @@
     return "biblia";
   }
 
+  function seedBook(translationId) {
+    const seed = window.BIBLE_SEED && window.BIBLE_SEED[translationId];
+    return seed || null;
+  }
+
+  function hasFullPack(translationId) {
+    return !!(cache[translationId] && cache[translationId].books);
+  }
+
   function bookDataOf(translationId, id) {
     const pack = cache[translationId];
-    if (!pack) return null;
-    return pack.books.find((b) => b.id === id) || null;
+    if (pack && pack.books) {
+      return pack.books.find((b) => b.id === id) || null;
+    }
+    const seed = seedBook(translationId);
+    if (seed && seed.id === id) return seed;
+    return null;
+  }
+
+  function hasLocalChapter(translationId, book, chapter) {
+    const data = bookDataOf(translationId, book);
+    const verses = data && data.chapters[chapter - 1];
+    return !!(verses && verses.length);
+  }
+
+  function canPaintCurrent() {
+    if (!hasLocalChapter(state.translation, state.book, state.chapter)) return false;
+    if (state.compare && !hasLocalChapter(state.translation2, state.book, state.chapter)) {
+      return false;
+    }
+    return true;
+  }
+
+  function neededTranslations() {
+    const ids = [state.translation];
+    if (state.compare) {
+      if (state.translation2 === state.translation) {
+        state.translation2 = otherTranslation(state.translation);
+      }
+      ids.push(state.translation2);
+    }
+    return ids;
+  }
+
+  function syncSearchReady() {
+    if (!els.search) return;
+    if (index) {
+      els.search.placeholder = "Hae tai avaa kohta, esim. Joh 3:16";
+      els.search.removeAttribute("aria-disabled");
+    } else {
+      els.search.placeholder = "Haku käytössä kun käännös on ladattu";
+      els.search.setAttribute("aria-disabled", "true");
+    }
   }
 
   function bookData(id) {
@@ -252,7 +307,9 @@
     const hits = searchText(q);
     if (!ref && !hits.length) {
       box.classList.add("open");
-      box.innerHTML = '<div class="empty-results">Ei hakutuloksia</div>';
+      box.innerHTML = index
+        ? '<div class="empty-results">Ei hakutuloksia</div>'
+        : '<div class="empty-results">Haku latautuu, odota hetki…</div>';
       return;
     }
 
@@ -316,28 +373,42 @@
   }
 
   function goTo(book, chapter, verse, query) {
-    const nCh = Math.max(1, chapterCount(book) || 1);
     state.book = book;
-    state.chapter = Math.min(Math.max(1, chapter), nCh);
+    state.chapter = Math.max(1, chapter);
+    if (hasFullPack(state.translation)) {
+      const nCh = Math.max(1, chapterCount(book) || 1);
+      state.chapter = Math.min(state.chapter, nCh);
+    }
     state.verse = verse || null;
     pendingHighlight = query || null;
     closeResults();
     els.search.blur();
     save();
     writeHash();
-    renderChapter();
+    if (canPaintCurrent() && neededTranslations().every(hasFullPack)) {
+      renderChapter();
+      return;
+    }
+    if (canPaintCurrent()) {
+      renderChapter();
+    }
+    refreshView();
   }
 
   function neighbor(delta) {
     const books = BibleBooks.BOOKS;
     const idx = bookMeta(state.book).index;
     const nCh = chapterCount(state.book);
+    const packsReady = neededTranslations().every(hasFullPack);
     let book = idx;
     let ch = state.chapter + delta;
+    if (!packsReady && delta > 0 && (nCh === 0 || ch > nCh)) {
+      return { book: state.book, chapter: state.chapter + 1 };
+    }
     if (ch < 1) {
       if (book === 0) return null;
       book -= 1;
-      ch = chapterCount(books[book].id);
+      ch = chapterCount(books[book].id) || 1;
     } else if (ch > nCh) {
       if (book === books.length - 1) return null;
       book += 1;
@@ -461,7 +532,8 @@
     window.scrollTo(0, 0);
   }
 
-  function renderChapter() {
+  function renderChapter(opts) {
+    const keepScroll = opts && opts.keepScroll;
     const { prev, next } = updateChrome();
 
     if (state.compare) {
@@ -472,7 +544,7 @@
       html += chapterEndHtml(prev, next);
       els.main.innerHTML = html;
       bindChapterEnd();
-      scrollToVerse();
+      if (!keepScroll) scrollToVerse();
       return;
     }
 
@@ -498,7 +570,7 @@
 
     els.main.innerHTML = html;
     bindChapterEnd();
-    scrollToVerse();
+    if (!keepScroll) scrollToVerse();
   }
 
   function openPicker() {
@@ -569,28 +641,107 @@
     });
   }
 
-  async function loadTranslation(id) {
-    if (cache[id]) return cache[id];
-    if (window.BIBLES && window.BIBLES[id]) {
-      cache[id] = window.BIBLES[id];
-      return cache[id];
-    }
+  let idbPromise = null;
+
+  function openIdb() {
+    if (idbPromise) return idbPromise;
+    idbPromise = new Promise((resolve, reject) => {
+      if (!window.indexedDB) {
+        reject(new Error("no idb"));
+        return;
+      }
+      const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains("packs")) db.createObjectStore("packs");
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => {
+        idbPromise = null;
+        reject(req.error);
+      };
+    });
+    return idbPromise;
+  }
+
+  async function idbGetPack(id) {
+    const db = await openIdb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("packs", "readonly");
+      const r = tx.objectStore("packs").get(id);
+      r.onsuccess = () => resolve(r.result || null);
+      r.onerror = () => reject(r.error);
+    });
+  }
+
+  async function idbPutPack(id, pack) {
+    const db = await openIdb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("packs", "readwrite");
+      const r = tx.objectStore("packs").put(pack, id);
+      r.onsuccess = () => resolve();
+      r.onerror = () => reject(r.error);
+    });
+  }
+
+  async function fetchPackFromNetwork(id) {
+    if (window.BIBLES && window.BIBLES[id]) return window.BIBLES[id];
     try {
       const res = await fetch(TRANSLATIONS[id].file);
       if (!res.ok) throw new Error("status " + res.status);
-      cache[id] = await res.json();
-      return cache[id];
+      return await res.json();
     } catch (err) {
       await loadScript("data/" + id + ".js");
       if (!window.BIBLES || !window.BIBLES[id]) {
         throw new Error("Tekstiä ei voitu ladata (" + err.message + ")");
       }
-      cache[id] = window.BIBLES[id];
-      return cache[id];
+      return window.BIBLES[id];
     }
   }
 
+  function loadTranslation(id) {
+    if (cache[id]) return Promise.resolve(cache[id]);
+    if (inflight[id]) return inflight[id];
+    inflight[id] = (async () => {
+      try {
+        if (window.BIBLES && window.BIBLES[id]) {
+          cache[id] = window.BIBLES[id];
+          return cache[id];
+        }
+        try {
+          const stored = await idbGetPack(id);
+          if (stored && Array.isArray(stored.books) && stored.books.length) {
+            cache[id] = stored;
+            return stored;
+          }
+        } catch (_) {}
+        if (cache[id]) return cache[id];
+        const pack = await fetchPackFromNetwork(id);
+        cache[id] = pack;
+        idbPutPack(id, pack).catch(() => {});
+        return pack;
+      } finally {
+        delete inflight[id];
+      }
+    })();
+    return inflight[id];
+  }
+
+  function warmIdbCache() {
+    Object.keys(TRANSLATIONS).forEach((id) => {
+      if (cache[id] || inflight[id]) return;
+      idbGetPack(id)
+        .then((pack) => {
+          if (pack && Array.isArray(pack.books) && pack.books.length && !cache[id]) {
+            cache[id] = pack;
+          }
+        })
+        .catch(() => {});
+    });
+  }
+
   function clampPlace() {
+    if (!hasFullPack(state.translation)) return;
     const nCh = chapterCount(state.book);
     if (!nCh) {
       state.book = "gen";
@@ -600,23 +751,49 @@
     }
   }
 
-  async function refreshView() {
-    els.main.innerHTML = '<div class="status">Ladataan Raamattua…</div>';
-    try {
-      await loadTranslation(state.translation);
-      if (state.compare) {
-        if (state.translation2 === state.translation) {
-          state.translation2 = otherTranslation(state.translation);
-        }
-        await loadTranslation(state.translation2);
-      }
+  function applyLoadedPacks() {
+    const prevBook = state.book;
+    const prevCh = state.chapter;
+    const prevVerse = state.verse;
+    const y = window.scrollY;
+    if (cache[state.translation]) {
       index = buildIndex(cache[state.translation]);
-      clampPlace();
+    }
+    syncSearchReady();
+    clampPlace();
+    save();
+    writeHash();
+    if (canPaintCurrent()) {
+      const same =
+        prevBook === state.book && prevCh === state.chapter && prevVerse === state.verse;
+      renderChapter({ keepScroll: same && !state.verse });
+      if (same && !state.verse) window.scrollTo(0, y);
+    }
+    if (els.search.value.trim()) renderResults(els.search.value);
+  }
+
+  async function refreshView() {
+    const seq = ++viewSeq;
+    const ids = neededTranslations();
+    if (canPaintCurrent()) {
       save();
       writeHash();
       renderChapter();
-      if (els.search.value.trim()) renderResults(els.search.value);
+    } else {
+      els.main.innerHTML = LOADING_HTML;
+      updateChrome();
+    }
+    syncSearchReady();
+    try {
+      await Promise.all(ids.map((id) => loadTranslation(id)));
+      if (seq !== viewSeq) return;
+      applyLoadedPacks();
     } catch (err) {
+      if (seq !== viewSeq) return;
+      if (canPaintCurrent()) {
+        renderChapter();
+        return;
+      }
       els.main.innerHTML =
         '<div class="status error">Tekstien lataus epäonnistui. Avaa sivu paikallisella palvelimella (esim. python3 -m http.server) tai GitHub Pagesissa.<br><br>' +
         escapeHtml(err.message) +
@@ -742,6 +919,12 @@
       const bookBtn = e.target.closest("[data-book]");
       if (bookBtn) {
         pickerBook = bookBtn.dataset.book;
+        const n = chapterCount(pickerBook);
+        if (n <= 0) {
+          goTo(pickerBook, 1);
+          closePicker();
+          return;
+        }
         pickerMode = "chapters";
         renderPicker();
         return;
@@ -781,6 +964,8 @@
     readHash();
     bind();
     els.searchWrap.classList.toggle("has-query", els.search.value.length > 0);
+    syncSearchReady();
+    warmIdbCache();
     await refreshView();
   }
 
